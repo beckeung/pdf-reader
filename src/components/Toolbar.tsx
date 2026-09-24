@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePdfStore } from '../store/usePdfStore';
+import { usePhotoReportStore } from '../store/usePhotoReportStore';
 import { downloadBytes } from '../lib/pdfOps';
 import { exportPdfWithAnnotations } from '../lib/annotations';
 import type { ToolMode } from '../lib/annotations';
 
-const MARK_TOOLS: { id: Exclude<ToolMode, 'pan' | 'note'>; label: string }[] = [
+const MARK_TOOLS: {
+  id: Exclude<ToolMode, 'pan' | 'note' | 'text'>;
+  label: string;
+}[] = [
   { id: 'highlight', label: '螢光筆' },
   { id: 'line', label: '畫線' },
   { id: 'ink', label: '手繪' },
@@ -27,6 +31,7 @@ export function Toolbar() {
     annotations,
     loading,
     sidebarOpen,
+    fileHandle,
     setTool,
     setAnnotationColor,
     setMergeOpen,
@@ -35,7 +40,11 @@ export function Toolbar() {
     openFile,
     openFromUrl,
     setError,
+    saveDocument,
+    saveDocumentAs,
+    rotateSelectedOrCurrent,
   } = usePdfStore();
+  const openReport = usePhotoReportStore((s) => s.openReport);
 
   const activeMark = MARK_TOOLS.find((t) => t.id === tool);
   const markActive = isMarkTool(tool);
@@ -113,6 +122,28 @@ export function Toolbar() {
           disabled={loading}
         >
           開啟
+        </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={!fileBytes || loading}
+          onClick={() => void saveDocument()}
+          title={
+            fileHandle
+              ? '儲存到目前檔案（含標記）'
+              : '尚未綁定檔案位置，將改為另存新檔'
+          }
+        >
+          儲存
+        </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={!fileBytes || loading}
+          onClick={() => void saveDocumentAs()}
+          title="另存新檔（含標記）"
+        >
+          另存新檔
         </button>
         <button
           type="button"
@@ -200,9 +231,44 @@ export function Toolbar() {
         >
           註解
         </button>
+        <button
+          type="button"
+          className={`btn ${tool === 'text' ? 'active' : ''}`}
+          disabled={!pageCount}
+          onClick={() => setTool('text')}
+          title="可列印文字：儲存／匯出會寫入 PDF（含中文）；Ctrl+C/V 整格"
+        >
+          文字
+        </button>
       </div>
 
       <div className="toolbar-group">
+        <button
+          type="button"
+          className="btn"
+          disabled={!fileBytes || loading}
+          onClick={() => void rotateSelectedOrCurrent(-90)}
+          title="逆時針旋轉 90°（有選頁則旋轉選取頁，否則旋轉目前頁）"
+        >
+          ↺
+        </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={!fileBytes || loading}
+          onClick={() => void rotateSelectedOrCurrent(90)}
+          title="順時針旋轉 90°（有選頁則旋轉選取頁，否則旋轉目前頁）"
+        >
+          ↻ 旋轉
+        </button>
+        <button
+          type="button"
+          className="btn primary"
+          onClick={() => openReport()}
+          title="開啟相片報告版面：放置相片與文字並產生 PDF"
+        >
+          相片報告
+        </button>
         <button type="button" className="btn" onClick={() => setMergeOpen(true)}>
           合併
         </button>
@@ -219,7 +285,7 @@ export function Toolbar() {
           className="btn primary"
           disabled={!fileBytes}
           onClick={exportAnnotated}
-          title="螢光筆／畫線／手繪會寫入 PDF；中文註解文字匯出時可能無法完整嵌入"
+          title="螢光筆／畫線／手繪會寫入 PDF；文字框以可列印圖層寫入（支援中文）"
         >
           匯出標記
         </button>

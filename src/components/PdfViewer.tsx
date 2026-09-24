@@ -25,6 +25,7 @@ export function PdfViewer() {
   const syncCurrentPage = usePdfStore((s) => s.syncCurrentPage);
   const clearScrollRequest = usePdfStore((s) => s.clearScrollRequest);
   const zoomByFactor = usePdfStore((s) => s.zoomByFactor);
+  const goToPage = usePdfStore((s) => s.goToPage);
 
   const isMulti = displayMode === 'multi-page';
 
@@ -114,35 +115,62 @@ export function PdfViewer() {
     };
   }, [isMulti, pageCount, syncCurrentPage, fileName]);
 
-  // Ctrl / ⌘ + wheel zoom (trackpad pinch also sends ctrl+wheel)
+  // Wheel: page flip; Ctrl / ⌘ + wheel: zoom
   useEffect(() => {
     const el = wrapRef.current;
     if (!el || !fileName) return;
 
+    let pageDeltaAccum = 0;
+    let pageFlipCooldownUntil = 0;
+
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
-      e.preventDefault();
       if (!usePdfStore.getState().pageCount) return;
 
-      const rect = el.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const oldScale = usePdfStore.getState().scale;
-      zoomAnchorRef.current = {
-        mx,
-        my,
-        scrollLeft: el.scrollLeft,
-        scrollTop: el.scrollTop,
-        oldScale,
-      };
+      // Ctrl / ⌘ + wheel → zoom (trackpad pinch also sends ctrl+wheel)
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const rect = el.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const oldScale = usePdfStore.getState().scale;
+        zoomAnchorRef.current = {
+          mx,
+          my,
+          scrollLeft: el.scrollLeft,
+          scrollTop: el.scrollTop,
+          oldScale,
+        };
+        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+        zoomByFactor(factor);
+        return;
+      }
 
-      const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-      zoomByFactor(factor);
+      // Plain wheel → previous / next page
+      e.preventDefault();
+      const now = performance.now();
+      if (now < pageFlipCooldownUntil) return;
+
+      let delta = e.deltaY;
+      if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) delta *= 16;
+      else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) delta *= 400;
+
+      pageDeltaAccum += delta;
+      const threshold = 40;
+      if (Math.abs(pageDeltaAccum) < threshold) return;
+
+      const { currentPage: page, pageCount: count } = usePdfStore.getState();
+      if (pageDeltaAccum < 0) {
+        if (page > 1) goToPage(page - 1);
+      } else if (page < count) {
+        goToPage(page + 1);
+      }
+      pageDeltaAccum = 0;
+      pageFlipCooldownUntil = now + 180;
     };
 
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [fileName, zoomByFactor]);
+  }, [fileName, zoomByFactor, goToPage]);
 
   useLayoutEffect(() => {
     const el = wrapRef.current;
@@ -170,7 +198,7 @@ export function PdfViewer() {
       ref={wrapRef}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
-      title="Ctrl + 滾輪縮放"
+      title="滾輪翻頁 · Ctrl + 滾輪縮放"
     >
       {!fileName ? (
         <div className="dropzone">

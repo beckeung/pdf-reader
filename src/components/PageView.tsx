@@ -4,6 +4,11 @@ import { createId } from '../lib/annotations';
 import { startPageRender } from '../lib/pdfjs';
 import { usePdfStore } from '../store/usePdfStore';
 import { AnnotationLayer } from './AnnotationLayer';
+import { TextBoxLayer } from './TextBoxLayer';
+
+const DEFAULT_TEXT_W = 160;
+const DEFAULT_TEXT_H = 48;
+const DEFAULT_FONT_SIZE = 14;
 
 function screenToPdf(
   offsetX: number,
@@ -147,7 +152,11 @@ export function PageView({
   }, [pdf, pageNumber, scale, shouldRender, setError]);
 
   const pageAnns = annotations.filter((a) => a.pageIndex === pageNumber - 1);
-  const visible = draft ? [...pageAnns, draft] : pageAnns;
+  const drawAnns = pageAnns.filter((a) => a.type !== 'text');
+  const textAnns = pageAnns.filter(
+    (a): a is Extract<Annotation, { type: 'text' }> => a.type === 'text',
+  );
+  const visible = draft ? [...drawAnns, draft] : drawAnns;
 
   const getLocalPoint = (e: React.PointerEvent): Point | null => {
     const layer = rootRef.current;
@@ -214,6 +223,30 @@ export function PageView({
         x: pt.x,
         y: pt.y,
         text: text.trim(),
+        color: annotationColor,
+      });
+    } else if (tool === 'text') {
+      drawing.current = false;
+      startRef.current = null;
+      const width = Math.min(DEFAULT_TEXT_W, pageSize.pageWidth);
+      const height = Math.min(DEFAULT_TEXT_H, pageSize.pageHeight);
+      // Place box so click is near top-left of the box
+      let x = pt.x;
+      let topPdf = pt.y;
+      let y = topPdf - height;
+      if (x + width > pageSize.pageWidth) x = Math.max(0, pageSize.pageWidth - width);
+      if (y < 0) y = 0;
+      if (y + height > pageSize.pageHeight) y = Math.max(0, pageSize.pageHeight - height);
+      addAnnotation({
+        id: createId(),
+        type: 'text',
+        pageIndex,
+        x,
+        y,
+        width,
+        height,
+        text: '',
+        fontSize: DEFAULT_FONT_SIZE,
         color: annotationColor,
       });
     }
@@ -283,11 +316,20 @@ export function PageView({
     >
       <canvas ref={canvasRef} className="pdf-canvas" />
       {shouldRender && pageSize.pageHeight > 0 && (
-        <AnnotationLayer
-          annotations={visible}
-          scale={scale}
-          pageHeight={pageSize.pageHeight}
-        />
+        <>
+          <AnnotationLayer
+            annotations={visible}
+            scale={scale}
+            pageHeight={pageSize.pageHeight}
+          />
+          <TextBoxLayer
+            annotations={textAnns}
+            scale={scale}
+            pageHeight={pageSize.pageHeight}
+            pageWidth={pageSize.pageWidth}
+            pageNumber={pageNumber}
+          />
+        </>
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, degrees } from 'pdf-lib';
 
 export function downloadBytes(bytes: Uint8Array, filename: string) {
   const blob = new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], {
@@ -10,6 +10,55 @@ export function downloadBytes(bytes: Uint8Array, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+export async function writeBytesToHandle(
+  handle: FileSystemFileHandle,
+  bytes: Uint8Array,
+): Promise<void> {
+  const writable = await handle.createWritable();
+  await writable.write(toArrayBuffer(bytes));
+  await writable.close();
+}
+
+export async function savePdfAs(
+  bytes: Uint8Array,
+  suggestedName: string,
+): Promise<FileSystemFileHandle | null> {
+  const name = suggestedName.toLowerCase().endsWith('.pdf')
+    ? suggestedName
+    : `${suggestedName}.pdf`;
+
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: name,
+        types: [
+          {
+            description: 'PDF',
+            accept: { 'application/pdf': ['.pdf'] },
+          },
+        ],
+      });
+      await writeBytesToHandle(handle, bytes);
+      return handle;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  downloadBytes(bytes, name);
+  return null;
 }
 
 export async function mergePdfs(
@@ -89,4 +138,78 @@ export async function splitPdf(
     out.addPage(page);
   }
   return out.save();
+}
+
+/** Remove 1-based pages; keeps remaining pages in order. */
+export async function deletePages(
+  sourceBytes: ArrayBuffer,
+  pagesToDelete: number[],
+): Promise<Uint8Array> {
+  const unique = [...new Set(pagesToDelete)].sort((a, b) => a - b);
+  if (unique.length === 0) {
+    throw new Error('請先選擇要刪除的頁面');
+  }
+  const src = await PDFDocument.load(sourceBytes.slice(0), {
+    ignoreEncryption: true,
+  });
+  const total = src.getPageCount();
+  for (const page of unique) {
+    if (!Number.isInteger(page) || page < 1 || page > total) {
+      throw new Error(`無效頁碼：${page}`);
+    }
+  }
+  if (unique.length >= total) {
+    throw new Error('至少需保留一頁');
+  }
+  const remove = new Set(unique);
+  const keepZeroBased: number[] = [];
+  for (let i = 1; i <= total; i += 1) {
+    if (!remove.has(i)) keepZeroBased.push(i - 1);
+  }
+  const out = await PDFDocument.create();
+  const pages = await out.copyPages(src, keepZeroBased);
+  for (const page of pages) {
+    out.addPage(page);
+  }
+  return out.save();
+}
+
+/** Map a 1-based page number after deleting pages; null if the page itself was deleted. */
+export function remapPageAfterDelete(
+  page: number,
+  deletedPages: number[],
+): number | null {
+  const deleted = new Set(deletedPages);
+  if (deleted.has(page)) return null;
+  let removedBefore = 0;
+  for (const d of deleted) {
+    if (d < page) removedBefore += 1;
+  }
+  return page - removedBefore;
+}
+
+/** Rotate 1-based pages by ±90 / 180 degrees (persisted in PDF). */
+export async function rotatePages(
+  sourceBytes: ArrayBuffer,
+  pageNumbers: number[],
+  deltaDegrees: 90 | -90 | 180,
+): Promise<Uint8Array> {
+  const unique = [...new Set(pageNumbers)].sort((a, b) => a - b);
+  if (unique.length === 0) {
+    throw new Error('請先選擇要旋轉的頁面');
+  }
+  const src = await PDFDocument.load(sourceBytes.slice(0), {
+    ignoreEncryption: true,
+  });
+  const total = src.getPageCount();
+  for (const pageNum of unique) {
+    if (!Number.isInteger(pageNum) || pageNum < 1 || pageNum > total) {
+      throw new Error(`無效頁碼：${pageNum}`);
+    }
+    const page = src.getPage(pageNum - 1);
+    const current = page.getRotation().angle;
+    const next = ((current + deltaDegrees) % 360 + 360) % 360;
+    page.setRotation(degrees(next));
+  }
+  return src.save();
 }

@@ -86,12 +86,36 @@ export function Sidebar() {
   const pageCount = usePdfStore((s) => s.pageCount);
   const currentPage = usePdfStore((s) => s.currentPage);
   const goToPage = usePdfStore((s) => s.goToPage);
+  const selectedPages = usePdfStore((s) => s.selectedPages);
+  const selectOnlyPage = usePdfStore((s) => s.selectOnlyPage);
+  const togglePageSelected = usePdfStore((s) => s.togglePageSelected);
+  const selectPageRange = usePdfStore((s) => s.selectPageRange);
+  const clearPageSelection = usePdfStore((s) => s.clearPageSelection);
   const [tab, setTab] = useState<SidebarTab>('page');
   const [pageView, setPageView] = useState<PageViewMode>('number');
   const [thumbWidth, setThumbWidth] = useState(160);
   const [sidebarWidth, setSidebarWidth] = useState(readStoredSidebarWidth);
   const thumbListRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  const selectedSet = new Set(selectedPages);
+
+  const onPageActivate = (
+    page: number,
+    e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+  ) => {
+    if (e.shiftKey) {
+      selectPageRange(page);
+      goToPage(page);
+      return;
+    }
+    if (e.ctrlKey || e.metaKey) {
+      togglePageSelected(page);
+      goToPage(page);
+      return;
+    }
+    selectOnlyPage(page);
+    goToPage(page);
+  };
 
   const zoomThumbs = (delta: number) => {
     setThumbWidth((w) => clampThumbWidth(w + delta));
@@ -231,15 +255,32 @@ export function Sidebar() {
                   </button>
                 </div>
 
+                {selectedPages.length > 0 && (
+                  <div className="page-selection-bar">
+                    <span>已選 {selectedPages.length} 頁 · Del 刪除</span>
+                    <button
+                      type="button"
+                      className="page-view-btn"
+                      onClick={() => clearPageSelection()}
+                    >
+                      清除
+                    </button>
+                  </div>
+                )}
+
                 {pageView === 'number' ? (
-                  <div className="page-jump-list">
+                  <div
+                    className="page-jump-list"
+                    title="Ctrl 多選 · Shift 範圍 · Del 刪除"
+                  >
                     {Array.from({ length: pageCount }, (_, i) => i + 1).map(
                       (n) => (
                         <button
                           key={n}
                           type="button"
-                          className={`page-chip ${n === currentPage ? 'active' : ''}`}
-                          onClick={() => goToPage(n)}
+                          className={`page-chip ${n === currentPage ? 'active' : ''} ${selectedSet.has(n) ? 'selected' : ''}`}
+                          aria-pressed={selectedSet.has(n)}
+                          onClick={(e) => onPageActivate(n, e)}
                         >
                           {n}
                         </button>
@@ -284,7 +325,7 @@ export function Sidebar() {
                     <div
                       ref={thumbListRef}
                       className="page-thumb-list"
-                      title="Ctrl + 滾輪縮放預覽"
+                      title="Ctrl 多選 · Shift 範圍 · Ctrl+滾輪縮放"
                     >
                       {Array.from({ length: pageCount }, (_, i) => i + 1).map(
                         (n) => (
@@ -293,7 +334,8 @@ export function Sidebar() {
                             pageNumber={n}
                             thumbWidth={thumbWidth}
                             active={n === currentPage}
-                            onSelect={goToPage}
+                            selected={selectedSet.has(n)}
+                            onSelect={onPageActivate}
                           />
                         ),
                       )}

@@ -4,13 +4,18 @@ import { usePdfStore } from '../store/usePdfStore';
 type PageThumbProps = {
   pageNumber: number;
   active: boolean;
+  selected?: boolean;
   thumbWidth: number;
-  onSelect: (page: number) => void;
+  onSelect: (
+    page: number,
+    e: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean },
+  ) => void;
 };
 
 export function PageThumb({
   pageNumber,
   active,
+  selected = false,
   thumbWidth,
   onSelect,
 }: PageThumbProps) {
@@ -103,8 +108,9 @@ export function PageThumb({
     <button
       ref={rootRef}
       type="button"
-      className={`page-thumb ${active ? 'active' : ''}`}
-      onClick={() => onSelect(pageNumber)}
+      className={`page-thumb ${active ? 'active' : ''} ${selected ? 'selected' : ''}`}
+      aria-pressed={selected}
+      onClick={(e) => onSelect(pageNumber, e)}
       title={`第 ${pageNumber} 頁`}
       style={{ ['--thumb-w' as string]: `${thumbWidth}px` }}
     >
